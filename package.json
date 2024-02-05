@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-ec2": "^3.504.0",
-    "dotenv": "^16.4.1"
+    "dotenv": "^16.4.1",
+    "minimist": "^1.2.8"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
