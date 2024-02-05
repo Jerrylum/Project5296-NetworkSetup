@@ -1,22 +1,24 @@
-#### This project was created using [themetalfleece/nodejs-typescript-template](https://github.com/themetalfleece/nodejs-typescript-template)
+## Setup AWS IAM
 
-# This template gets updated daily so the latest dependencies are always used!
+1. Create a new user in the AWS IAM console.
+2. Attach the `AmazonEC2FullAccess` and `AmazonVPCFullAccess` policies to the user.
+3. Create a new access key for the user and save the `Access key ID` and `Secret access key`.
 
-## What to do after using this template
+Create a `.env` file in the root of the project with the following content:
 
-1. Edit `package.json` to set the project name, version, description, and author.
-2. Edit the `LICENSE` file to use your name in the Copyright section.
-3. Edit the `.prettierrc.json` file with your preferred values.
-4. Remove the `.github/workflows/upgrade-dependencies.yml` files, since it contains the workflow to upgrade all dependencies on a daily basis.
-   * In case you would like to keep it, remove lines 7, 30, 32 from it. Also, change the git user name in line 28.
-5. Delete this section from the `README.md` file.
-6. Start coding by editing the `src/app.ts` file!
+```env
+AWS_REGION=ap-east-1
+AWS_ACCESS_KEY_ID=????
+AWS_SECRET_ACCESS_KEY=????
+INSTANCE_KEYPAIR_ID=????
+```
 
-## Install
+The `AWS_REGION` is the region where all the resources will be created.
 
-1. Install [node.js](https://nodejs.org/en/download/), [yarn](https://yarnpkg.com/getting-started/install) (or use npm).
-2. Clone this repository, and using a terminal navigate to its directory.
-3. Run `yarn` or `npm install` to install the dependencies.
+The `AWS_ACCESS_KEY_ID` and `AWS_SECRET` are the credentials of the user created in the first step.
+
+The `INSTANCE_KEY_PAIR_ID` is the id of the key pair that will be used to connect to the EC2 instances.
+
 
 ## Build & Run
 
@@ -54,13 +56,6 @@
 -   Run `yarn format` or `npm format` to format the code.
 
 ## Testing
-
-Check the placeholder test examples to get started : 
-
-- `/src/app.ts` that provide a function `sum` 
-- `/test/app.spec.ts` who test the `sum` function 
-
-This files are just an example, feel free to remove it
 
 -   Run `yarn test` or `npm test` to execute all tests.
 -   Run `yarn test:watch` or `npm test:watch` to run tests in watch (loop) mode.

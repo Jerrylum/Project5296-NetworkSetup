@@ -7,7 +7,6 @@ dotenv.config();
 
 import {
   EC2Client,
-  RunInstancesCommand,
   CreateVpcCommand,
   CreateVpcCommandInput,
   RouteTable,
@@ -22,7 +21,28 @@ import {
   CreateRouteCommand,
   CreateSubnetCommandInput,
   CreateSubnetCommand,
+  ModifySubnetAttributeCommand,
+  ModifySubnetAttributeCommandInput,
+  CreateSecurityGroupCommandInput,
+  CreateSecurityGroupCommand,
+  AuthorizeSecurityGroupIngressCommandInput,
+  AuthorizeSecurityGroupIngressCommand,
 } from '@aws-sdk/client-ec2';
+
+// See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#modify-network-interface-attributes
+// Instance type v.s. Maximum network interfaces
+const instanceTypeToMaxNetworkInterfaces = {
+  't2.nano': 2,
+  't2.micro': 2,
+  't2.small': 3,
+  't2.medium': 3,
+  't2.large': 3,
+  't3.nano': 2,
+  't3.micro': 2,
+  't3.small': 3,
+  't3.medium': 3,
+  't3.large': 3,
+};
 
 const client = new EC2Client({ region: process.env.AWS_REGION });
 
@@ -30,25 +50,25 @@ function randomId() {
   return Math.random().toString(36).substring(6);
 }
 
-function createTagsInfo(nameId: string, resourceShortName: string) {
+function createTagsInfo(operationId: string, resourceShortName: string) {
   return [
     {
       Key: 'Project5296 (created by script)',
-      Value: nameId,
+      Value: operationId,
     },
     {
       Key: 'Name',
-      Value: `Project5296-${resourceShortName}-${nameId}`,
+      Value: `Project5296-${resourceShortName}-${operationId}`,
     },
   ];
 }
 
-async function createVpc(nameId: string) {
+async function createVpc(operationId: string) {
   const input: CreateVpcCommandInput = {
     // DryRun: true,
     CidrBlock: '10.0.0.0/16',
     InstanceTenancy: 'default',
-    TagSpecifications: [{ ResourceType: 'vpc', Tags: createTagsInfo(nameId, 'VPC') }],
+    TagSpecifications: [{ ResourceType: 'vpc', Tags: createTagsInfo(operationId, 'VPC') }],
   };
   const output = await client.send(new CreateVpcCommand(input));
   return output.Vpc;
@@ -64,9 +84,9 @@ async function putTags(resources: string[], tags: { Key: string; Value: string }
   await client.send(new CreateTagsCommand({ Resources: resources, Tags: tags }));
 }
 
-async function createInternetGateway(nameId: string) {
+async function createInternetGateway(operationId: string) {
   const input: CreateInternetGatewayCommandInput = {
-    TagSpecifications: [{ ResourceType: 'internet-gateway', Tags: createTagsInfo(nameId, 'IGW') }],
+    TagSpecifications: [{ ResourceType: 'internet-gateway', Tags: createTagsInfo(operationId, 'IGW') }],
   };
   const output = await client.send(new CreateInternetGatewayCommand(input));
   return output.InternetGateway;
@@ -86,17 +106,46 @@ async function createRouteToInternetGateway(rtbId: string, igwId: string) {
   await client.send(new CreateRouteCommand(input));
 }
 
-async function createPublicSubnet(vpcId: string) {
-  const input: CreateSubnetCommandInput = { VpcId: vpcId, CidrBlock: '10.0.0.0/28' };
+async function createSubnet(operationId: string, vpcId: string, idx: number) {
+  const input: CreateSubnetCommandInput = {
+    VpcId: vpcId,
+    CidrBlock: `10.0.${idx}.0/28`,
+    TagSpecifications: [{ ResourceType: 'subnet', Tags: createTagsInfo(operationId, 'Subnet' + idx) }],
+  };
   const output = await client.send(new CreateSubnetCommand(input));
   return output.Subnet;
 }
 
+async function ModifySubnetToPublic(subnetId: string) {
+  const input: ModifySubnetAttributeCommandInput = { SubnetId: subnetId, MapPublicIpOnLaunch: { Value: true } };
+  await client.send(new ModifySubnetAttributeCommand(input));
+}
+
+async function createSecurityGroup(operationId: string, vpcId: string): Promise<string | undefined> {
+  const input: CreateSecurityGroupCommandInput = {
+    Description: 'Project5296 Security Group',
+    GroupName: `Project5296-SG-${operationId}`,
+    VpcId: vpcId,
+    TagSpecifications: [{ ResourceType: 'security-group', Tags: createTagsInfo(operationId, 'SG') }],
+  };
+  const output = await client.send(new CreateSecurityGroupCommand(input));
+  return output.GroupId;
+}
+
+async function setupSecurityGroupIngress(groupId: string) {
+  const input1: AuthorizeSecurityGroupIngressCommandInput = {
+    GroupId: groupId,
+    // all traffic from 0.0.0.0
+    IpPermissions: [{ IpProtocol: '-1', IpRanges: [{ CidrIp: '0.0.0.0/0' }] }],
+  };
+  await client.send(new AuthorizeSecurityGroupIngressCommand(input1));
+}
+
 async function main() {
-  const nameId = randomId();
+  const operationId = randomId();
 
   // Create VPC
-  const vpc = await createVpc(nameId);
+  const vpc = await createVpc(operationId);
   if (!vpc || vpc.VpcId === undefined) throw new Error('VPC not created');
   console.log(`VPC created with id: ${vpc.VpcId}`);
 
@@ -106,11 +155,11 @@ async function main() {
   console.log(`Route Table found with id: ${rtb.RouteTableId}`);
 
   // Tag the Route Table
-  await putTags([rtb.RouteTableId], createTagsInfo(nameId, 'RTB'));
+  await putTags([rtb.RouteTableId], createTagsInfo(operationId, 'RTB'));
   console.log(`Route Table tagged with id: ${rtb.RouteTableId}`);
 
   // Create Internet Gateway
-  const igw = await createInternetGateway(nameId);
+  const igw = await createInternetGateway(operationId);
   if (!igw || igw.InternetGatewayId === undefined) throw new Error('Internet Gateway not created');
   console.log(`Internet Gateway created with id: ${igw.InternetGatewayId}`);
 
@@ -122,7 +171,62 @@ async function main() {
   await createRouteToInternetGateway(rtb.RouteTableId, igw.InternetGatewayId);
   console.log('Route from Route Table to Internet Gateway created');
 
-  console.log(rtb);
+  const securityGroup = await createSecurityGroup(operationId, vpc.VpcId);
+  if (!securityGroup) throw new Error('Security Group not created');
+  console.log(`Security Group created with id: ${securityGroup}`);
+
+  // No need to setup security group ingress as the default security group allows all traffic
+  // await setupSecurityGroupIngress(securityGroup);
+
+  // This is also the maximum number interface for the selected instance type
+  const subnetCount = instanceTypeToMaxNetworkInterfaces[instanceType];
+  console.log(`Creating ${subnetCount} subnets`);
+
+  for (let i = 0; i < subnetCount; i++) {
+    const subnet = await createSubnet(operationId, vpc.VpcId, i);
+    if (!subnet || subnet.SubnetId === undefined) throw new Error('Subnet not created');
+    console.log(`Subnet created with id: ${subnet.SubnetId}`);
+
+    await ModifySubnetToPublic(subnet.SubnetId);
+    console.log(`Subnet modified to public with id: ${subnet.SubnetId}`);
+  }
+  console.log(`All ${subnetCount} subnets created`);
+
+  const instanceCount = Math.ceil(ipCount / subnetCount);
+  // console.log(`Creating ${instanceCount} instances`);
+
+  // TODO
+
+  console.log('done');
+}
+
+const argv = require('minimist')(process.argv.slice(2));
+const instanceTypeRaw = argv['instance-type'];
+const ipCountRaw = argv['ip-count'];
+const instanceKeyPairId = process.env.INSTANCE_KEY_PAIR_ID;
+
+if (!instanceKeyPairId) {
+  console.error('Please provide the key pair id in the .env file');
+  process.exit(1);
+}
+
+if (!instanceTypeRaw || !ipCountRaw) {
+  console.error('Please provide instance type and ip count');
+  console.error('Example: npm run create -- --instance-type t2.micro --ip-count 1');
+  process.exit(1);
+}
+
+const knownInstanceTypes = Object.keys(instanceTypeToMaxNetworkInterfaces);
+if (!knownInstanceTypes.includes(instanceTypeRaw)) {
+  console.error('Unknown instance type');
+  process.exit(1);
+}
+const instanceType = instanceTypeRaw as keyof typeof instanceTypeToMaxNetworkInterfaces;
+
+const ipCount = parseInt(ipCountRaw);
+if (isNaN(ipCount) || ipCount < 1) {
+  console.error('Invalid ip count');
+  process.exit(1);
 }
 
 main();
