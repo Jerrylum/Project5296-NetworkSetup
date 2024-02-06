@@ -19,7 +19,7 @@ The `AWS_REGION` is the region where all the resources will be created.
 
 The `AWS_ACCESS_KEY_ID` and `AWS_SECRET` are the credentials of the user created in the first step.
 
-The `INSTANCE_KEY_PAIR_ID` is the id of the key pair that will be used to connect to the EC2 instances.
+The `INSTANCE_KEY_NAME` is the name of the key pair that will be used to connect to the EC2 instances.
 
 ## Build & Run
 

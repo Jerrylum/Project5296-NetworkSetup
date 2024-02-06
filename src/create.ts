@@ -27,6 +27,9 @@ import {
   CreateSecurityGroupCommand,
   AuthorizeSecurityGroupIngressCommandInput,
   AuthorizeSecurityGroupIngressCommand,
+  RunInstancesCommandInput,
+  RunInstancesCommand,
+  Instance,
 } from '@aws-sdk/client-ec2';
 
 // See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#modify-network-interface-attributes
@@ -43,6 +46,8 @@ const instanceTypeToMaxNetworkInterfaces = {
   't3.medium': 3,
   't3.large': 3,
 };
+
+type SupportedInstanceType = keyof typeof instanceTypeToMaxNetworkInterfaces;
 
 const client = new EC2Client({ region: process.env.AWS_REGION });
 
@@ -133,16 +138,93 @@ async function createSecurityGroup(operationId: string, vpcId: string): Promise<
 }
 
 async function setupSecurityGroupIngress(groupId: string) {
-  const input1: AuthorizeSecurityGroupIngressCommandInput = {
+  const input: AuthorizeSecurityGroupIngressCommandInput = {
     GroupId: groupId,
     // all traffic from 0.0.0.0
     IpPermissions: [{ IpProtocol: '-1', IpRanges: [{ CidrIp: '0.0.0.0/0' }] }],
   };
-  await client.send(new AuthorizeSecurityGroupIngressCommand(input1));
+  await client.send(new AuthorizeSecurityGroupIngressCommand(input));
+}
+
+async function runInstances(
+  operationId: string,
+  instanceType: SupportedInstanceType,
+  keyName: string,
+  networkInterfaceCount: number,
+  subnetId: string,
+  securityGroupId: string,
+  count: number,
+) {
+  const networkInterfaces = [];
+  for (let i = 0; i < networkInterfaceCount; i++) {
+    networkInterfaces.push({
+      DeviceIndex: i,
+      SubnetId: subnetId,
+      Groups: [securityGroupId],
+    });
+  }
+  const input: RunInstancesCommandInput = {
+    MaxCount: count,
+    MinCount: count,
+    ImageId: 'ami-0d96ec8a788679eb2', // Ubuntu Server 22.04 TLS (HVM), SSD Volume Type
+    InstanceType: instanceType,
+    KeyName: keyName,
+    EbsOptimized: true,
+    NetworkInterfaces: networkInterfaces,
+    TagSpecifications: [
+      {
+        ResourceType: 'instance',
+        Tags: createTagsInfo(operationId, 'Proxy'),
+      },
+    ],
+    MetadataOptions: {
+      HttpTokens: 'required',
+      HttpEndpoint: 'enabled',
+      HttpPutResponseHopLimit: 2,
+    },
+    PrivateDnsNameOptions: {
+      HostnameType: 'ip-name',
+      EnableResourceNameDnsARecord: false,
+      EnableResourceNameDnsAAAARecord: false,
+    },
+    DryRun: true,
+  };
+  const output = await client.send(new RunInstancesCommand(input));
+  return output.Instances;
 }
 
 async function main() {
+  const argv = require('minimist')(process.argv.slice(2));
+  const instanceTypeRaw = argv['instance-type'];
+  const ipCountRaw = argv['ip-count'];
+  const instanceKeyName = process.env.INSTANCE_KEY_NAME;
+
+  if (!instanceKeyName) {
+    console.error('Please provide the key pair id in the .env file');
+    process.exit(1);
+  }
+
+  if (!instanceTypeRaw || !ipCountRaw) {
+    console.error('Please provide instance type and ip count');
+    console.error('Example: npm run create -- --instance-type t2.micro --ip-count 1');
+    process.exit(1);
+  }
+
+  const knownInstanceTypes = Object.keys(instanceTypeToMaxNetworkInterfaces);
+  if (!knownInstanceTypes.includes(instanceTypeRaw)) {
+    console.error('Unknown instance type');
+    process.exit(1);
+  }
+  const instanceType = instanceTypeRaw as keyof typeof instanceTypeToMaxNetworkInterfaces;
+
+  const ipCount = parseInt(ipCountRaw);
+  if (isNaN(ipCount) || ipCount < 1) {
+    console.error('Invalid ip count');
+    process.exit(1);
+  }
+
   const operationId = randomId();
+  console.log(`Operation ID: ${operationId}`);
 
   // Create VPC
   const vpc = await createVpc(operationId);
@@ -171,6 +253,7 @@ async function main() {
   await createRouteToInternetGateway(rtb.RouteTableId, igw.InternetGatewayId);
   console.log('Route from Route Table to Internet Gateway created');
 
+  // Create Security Group
   const securityGroup = await createSecurityGroup(operationId, vpc.VpcId);
   if (!securityGroup) throw new Error('Security Group not created');
   console.log(`Security Group created with id: ${securityGroup}`);
@@ -178,55 +261,33 @@ async function main() {
   // No need to setup security group ingress as the default security group allows all traffic
   // await setupSecurityGroupIngress(securityGroup);
 
-  // This is also the maximum number interface for the selected instance type
-  const subnetCount = instanceTypeToMaxNetworkInterfaces[instanceType];
-  console.log(`Creating ${subnetCount} subnets`);
+  // Create Subnet
+  const subnet = await createSubnet(operationId, vpc.VpcId, 0);
+  if (!subnet || subnet.SubnetId === undefined) throw new Error('Subnet not created');
+  console.log(`Subnet created with id: ${subnet.SubnetId}`);
 
-  for (let i = 0; i < subnetCount; i++) {
-    const subnet = await createSubnet(operationId, vpc.VpcId, i);
-    if (!subnet || subnet.SubnetId === undefined) throw new Error('Subnet not created');
-    console.log(`Subnet created with id: ${subnet.SubnetId}`);
+  // Modify Subnet to Public
+  await ModifySubnetToPublic(subnet.SubnetId);
+  console.log(`Subnet modified to public with id: ${subnet.SubnetId}`);
 
-    await ModifySubnetToPublic(subnet.SubnetId);
-    console.log(`Subnet modified to public with id: ${subnet.SubnetId}`);
-  }
-  console.log(`All ${subnetCount} subnets created`);
+  // const networkInterfaceCount = instanceTypeToMaxNetworkInterfaces[instanceType];
+  const networkInterfaceCount = 1;
+  const instanceCount = Math.ceil(ipCount / networkInterfaceCount);
+  console.log(`Creating ${instanceCount} instances`);
 
-  const instanceCount = Math.ceil(ipCount / subnetCount);
-  // console.log(`Creating ${instanceCount} instances`);
+  const instances = await runInstances(
+    operationId,
+    instanceType,
+    instanceKeyName,
+    networkInterfaceCount,
+    subnet.SubnetId,
+    securityGroup,
+    instanceCount,
+  );
 
   // TODO
 
   console.log('done');
-}
-
-const argv = require('minimist')(process.argv.slice(2));
-const instanceTypeRaw = argv['instance-type'];
-const ipCountRaw = argv['ip-count'];
-const instanceKeyPairId = process.env.INSTANCE_KEY_PAIR_ID;
-
-if (!instanceKeyPairId) {
-  console.error('Please provide the key pair id in the .env file');
-  process.exit(1);
-}
-
-if (!instanceTypeRaw || !ipCountRaw) {
-  console.error('Please provide instance type and ip count');
-  console.error('Example: npm run create -- --instance-type t2.micro --ip-count 1');
-  process.exit(1);
-}
-
-const knownInstanceTypes = Object.keys(instanceTypeToMaxNetworkInterfaces);
-if (!knownInstanceTypes.includes(instanceTypeRaw)) {
-  console.error('Unknown instance type');
-  process.exit(1);
-}
-const instanceType = instanceTypeRaw as keyof typeof instanceTypeToMaxNetworkInterfaces;
-
-const ipCount = parseInt(ipCountRaw);
-if (isNaN(ipCount) || ipCount < 1) {
-  console.error('Invalid ip count');
-  process.exit(1);
 }
 
 main();
