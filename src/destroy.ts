@@ -16,6 +16,8 @@ import {
   DeleteSubnetCommand,
   DescribeSecurityGroupsCommand,
   DeleteSecurityGroupCommand,
+  DescribeInstancesCommand,
+  TerminateInstancesCommand,
 } from '@aws-sdk/client-ec2';
 
 const client = new EC2Client({ region: process.env.AWS_REGION });
@@ -24,7 +26,43 @@ const filter = {
   Filters: [{ Name: 'tag:Project5296 (created by script)', Values: ['*'] }],
 };
 
-async function destroySecurityGroup() {
+async function destroyInstances() {
+  const describeOutput = await client.send(new DescribeInstancesCommand(filter));
+
+  const instances =
+    describeOutput.Reservations?.map((r) => r.Instances?.map((i) => i.InstanceId || '') || []).flat() || [];
+  await client.send(new TerminateInstancesCommand({ InstanceIds: instances }));
+  console.log(`Send termination request for instances: ${instances.join(', ')}`);
+}
+
+async function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntilAllInstancesTerminated() {
+  while (true) {
+    const describeOutput = await client.send(new DescribeInstancesCommand(filter));
+    const instanceStateNames = describeOutput.Reservations?.map((r) => r.Instances?.map((i) => i.State?.Name || '') || []).flat();
+    
+    if (instanceStateNames?.length === 0) {
+      console.log('No instances found.');
+      break;
+    }
+
+    const isRunningCount = instanceStateNames?.filter((s) => s !== 'terminated');
+    
+    if (isRunningCount?.length === 0) {
+      console.log('All instances are terminated.');
+      break;
+    } else {
+      console.log(`Waiting for ${isRunningCount?.length} instances to terminate...`);
+    }
+
+    await delay(1000);
+  }
+}
+
+async function destroySecurityGroups() {
   const describeOutput = await client.send(new DescribeSecurityGroupsCommand(filter));
 
   describeOutput.SecurityGroups?.forEach(async (sg) => {
@@ -33,7 +71,7 @@ async function destroySecurityGroup() {
   });
 }
 
-async function destroySubnet() {
+async function destroySubnets() {
   const describeOutput = await client.send(new DescribeSubnetsCommand(filter));
 
   describeOutput.Subnets?.forEach(async (subnet) => {
@@ -42,7 +80,7 @@ async function destroySubnet() {
   });
 }
 
-async function destroyInternetGateway() {
+async function destroyInternetGateways() {
   const describeOutput = await client.send(new DescribeInternetGatewaysCommand(filter));
 
   describeOutput.InternetGateways?.forEach(async (igw) => {
@@ -59,7 +97,7 @@ async function destroyInternetGateway() {
   });
 }
 
-async function destroyVpc() {
+async function destroyVpcs() {
   const describeOutput = await client.send(new DescribeVpcsCommand(filter));
 
   describeOutput.Vpcs?.forEach(async (vpc) => {
@@ -70,11 +108,13 @@ async function destroyVpc() {
 
 async function main() {
   try {
-    await destroySecurityGroup();
-    await destroySubnet();
-    await destroyInternetGateway();
+    await destroyInstances();
+    await waitUntilAllInstancesTerminated();
+    await destroySecurityGroups();
+    await destroySubnets();
+    await destroyInternetGateways();
     // route tables are deleted automatically when the VPC is deleted
-    await destroyVpc();
+    await destroyVpcs();
   } catch (error) {
     console.error(error);
     console.log('Tips: You can run this script again if it fails.');

@@ -146,7 +146,7 @@ async function setupSecurityGroupIngress(groupId: string) {
   if (group.IpPermissions?.length !== 0) {
     console.log('Security Group already has ingress rules');
     return;
-  } 
+  }
 
   const input: AuthorizeSecurityGroupIngressCommandInput = {
     GroupId: groupId,
@@ -165,6 +165,14 @@ async function runInstances(
   securityGroupId: string,
   count: number,
 ) {
+  const autorunScript = `#!/bin/bash
+apt update
+apt install -y tinyproxy
+echo -e "Port 3000\nTimeout 600" > tinyproxy.conf
+tinyproxy -c tinyproxy.conf`;
+
+  const userData = Buffer.from(autorunScript).toString('base64');
+
   const networkInterfaces = [];
   for (let i = 0; i < networkInterfaceCount; i++) {
     networkInterfaces.push({
@@ -179,6 +187,7 @@ async function runInstances(
     ImageId: 'ami-0d96ec8a788679eb2', // Ubuntu Server 22.04 TLS (HVM), SSD Volume Type
     InstanceType: instanceType,
     KeyName: keyName,
+    UserData: userData,
     EbsOptimized: true,
     NetworkInterfaces: networkInterfaces,
     TagSpecifications: [
@@ -216,7 +225,7 @@ async function main() {
 
   if (!instanceTypeRaw || !ipCountRaw) {
     console.error('Please provide instance type and ip count');
-    console.error('Example: npm run create -- --instance-type t2.micro --ip-count 1');
+    console.error('Example: npm run create -- --instance-type t3.micro --ip-count 1');
     process.exit(1);
   }
 
