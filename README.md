@@ -12,7 +12,7 @@ Create a `.env` file in the root of the project with the following content:
 AWS_REGION=ap-east-1
 AWS_ACCESS_KEY_ID=????
 AWS_SECRET_ACCESS_KEY=????
-INSTANCE_KEY_PAIR_ID=????
+INSTANCE_KEY_NAME=????
 ```
 
 The `AWS_REGION` is the region where all the resources will be created.
