@@ -187,7 +187,7 @@ async function runInstances(
       EnableResourceNameDnsARecord: false,
       EnableResourceNameDnsAAAARecord: false,
     },
-    DryRun: true,
+    // DryRun: true,
   };
   const output = await client.send(new RunInstancesCommand(input));
   return output.Instances;
