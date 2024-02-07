@@ -30,6 +30,7 @@ import {
   RunInstancesCommandInput,
   RunInstancesCommand,
   Instance,
+  DescribeSecurityGroupsCommand,
 } from '@aws-sdk/client-ec2';
 
 // See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#modify-network-interface-attributes
@@ -138,6 +139,15 @@ async function createSecurityGroup(operationId: string, vpcId: string): Promise<
 }
 
 async function setupSecurityGroupIngress(groupId: string) {
+  const describeOutput = await client.send(new DescribeSecurityGroupsCommand({ GroupIds: [groupId] }));
+  const group = describeOutput.SecurityGroups?.[0];
+  if (!group) throw new Error('Security Group not found');
+
+  if (group.IpPermissions?.length !== 0) {
+    console.log('Security Group already has ingress rules');
+    return;
+  } 
+
   const input: AuthorizeSecurityGroupIngressCommandInput = {
     GroupId: groupId,
     // all traffic from 0.0.0.0
@@ -254,12 +264,13 @@ async function main() {
   console.log('Route from Route Table to Internet Gateway created');
 
   // Create Security Group
-  const securityGroup = await createSecurityGroup(operationId, vpc.VpcId);
-  if (!securityGroup) throw new Error('Security Group not created');
-  console.log(`Security Group created with id: ${securityGroup}`);
+  const securityGroupId = await createSecurityGroup(operationId, vpc.VpcId);
+  if (!securityGroupId) throw new Error('Security Group not created');
+  console.log(`Security Group created with id: ${securityGroupId}`);
 
   // No need to setup security group ingress as the default security group allows all traffic
-  // await setupSecurityGroupIngress(securityGroup);
+  await setupSecurityGroupIngress(securityGroupId);
+  console.log('Security Group ingress rules setup');
 
   // Create Subnet
   const subnet = await createSubnet(operationId, vpc.VpcId, 0);
@@ -281,7 +292,7 @@ async function main() {
     instanceKeyName,
     networkInterfaceCount,
     subnet.SubnetId,
-    securityGroup,
+    securityGroupId,
     instanceCount,
   );
 
