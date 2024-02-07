@@ -1,5 +1,5 @@
 /**
- * The following lines intialize dotenv,
+ * The following lines initialize dotenv,
  * so that env vars from the .env file are present in process.env
  */
 import * as dotenv from 'dotenv';
@@ -31,7 +31,11 @@ import {
   RunInstancesCommand,
   Instance,
   DescribeSecurityGroupsCommand,
+  DescribeInstancesCommand,
 } from '@aws-sdk/client-ec2';
+
+import * as fs from 'fs';
+import * as net from 'net';
 
 // See: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#modify-network-interface-attributes
 // Instance type v.s. Maximum network interfaces
@@ -47,6 +51,8 @@ const instanceTypeToMaxNetworkInterfaces = {
   't3.medium': 3,
   't3.large': 3,
 };
+
+const PROXY_PORT = 3000;
 
 type SupportedInstanceType = keyof typeof instanceTypeToMaxNetworkInterfaces;
 
@@ -168,7 +174,7 @@ async function runInstances(
   const autorunScript = `#!/bin/bash
 apt update
 apt install -y tinyproxy
-echo -e "Port 3000\nTimeout 600" > tinyproxy.conf
+echo -e "Port 3000\\nTimeout 10" > tinyproxy.conf
 tinyproxy -c tinyproxy.conf`;
 
   const userData = Buffer.from(autorunScript).toString('base64');
@@ -210,6 +216,94 @@ tinyproxy -c tinyproxy.conf`;
   };
   const output = await client.send(new RunInstancesCommand(input));
   return output.Instances;
+}
+
+async function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntilAllInstancesReady(instanceIds: string[]): Promise<string[]> {
+  while (true) {
+    const describeOutput = await client.send(new DescribeInstancesCommand({ InstanceIds: instanceIds }));
+    // prettier-ignore
+    const allStateNameResults = describeOutput.Reservations
+      ?.map((r) => r.Instances
+        ?.map((i) => i.State?.Name || '') || [])
+          .flat() || [];
+    // prettier-ignore
+    const allIpResults = describeOutput.Reservations
+      ?.map((r) => r.Instances
+        ?.map((i) => i.NetworkInterfaces
+          ?.map((ni) => ni.Association?.PublicIp) || [])
+            .flat())
+              .flat() || [];
+
+    const allReadyInstances = allStateNameResults.filter((s) => s === 'running');
+    const allReadyIps = allIpResults.filter((ip) => ip !== undefined) as string[];
+
+    const isAllInstanceRunning = allReadyInstances.length === allStateNameResults.length;
+    const isAllNetworkInterfaceReady = allReadyIps.length === allIpResults.length;
+
+    if (isAllNetworkInterfaceReady && isAllInstanceRunning) {
+      console.log('All instances are ready');
+      return allReadyIps;
+    } else {
+      // print numbers
+      const a = allReadyInstances.length;
+      const b = allStateNameResults.length;
+      const c = allReadyIps.length;
+      const d = allIpResults.length;
+      console.log(`Waiting for ${a}/${b} instances to be ready, ${c}/${d} IPs to be ready`);
+    }
+
+    await delay(1000);
+  }
+}
+
+async function tryConnectingToProxy(ip: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const client = new net.Socket();
+    client.setTimeout(2000);
+    client.on('connect', () => {
+      client.end();
+      resolve(true);
+    });
+    client.on('timeout', () => {
+      client.destroy();
+      resolve(false);
+    });
+    client.on('error', () => {
+      client.destroy();
+      resolve(false);
+    });
+    client.connect(PROXY_PORT, ip);
+  });
+}
+
+async function waitUntilAllProxyReady(ips: string[]) {
+  let notReadyList = [...ips];
+  while (true) {
+    const newNotReadyList = [];
+    for (const ip of notReadyList) {
+      const isReady = await tryConnectingToProxy(ip);
+      if (isReady) {
+        console.log(`Proxy at ${ip} is ready`);
+      } else {
+        console.log(`Proxy at ${ip} is not ready`);
+        newNotReadyList.push(ip);
+      }
+    }
+    notReadyList = newNotReadyList;
+
+    if (notReadyList.length === 0) {
+      console.log('All proxies are ready');
+      return;
+    } else {
+      console.log(`Waiting for ${notReadyList.length} proxies to be ready...`);
+    }
+
+    await delay(1000);
+  }
 }
 
 async function main() {
@@ -304,10 +398,16 @@ async function main() {
     securityGroupId,
     instanceCount,
   );
+  if (!instances) throw new Error('Instances not created');
 
-  // TODO
+  const allIps = await waitUntilAllInstancesReady(instances.map((i) => i.InstanceId || ''));
 
-  console.log('done');
+  fs.writeFileSync('instances.txt', allIps.join('\n'));
+  console.log('Public IPs written to instances.txt');
+
+  await waitUntilAllProxyReady(allIps);
+
+  console.log('Done');
 }
 
 main();

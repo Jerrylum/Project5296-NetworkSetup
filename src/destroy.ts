@@ -1,5 +1,5 @@
 /**
- * The following lines intialize dotenv,
+ * The following lines initialize dotenv,
  * so that env vars from the .env file are present in process.env
  */
 import * as dotenv from 'dotenv';
@@ -42,15 +42,19 @@ async function delay(ms: number) {
 async function waitUntilAllInstancesTerminated() {
   while (true) {
     const describeOutput = await client.send(new DescribeInstancesCommand(filter));
-    const instanceStateNames = describeOutput.Reservations?.map((r) => r.Instances?.map((i) => i.State?.Name || '') || []).flat();
-    
+    // prettier-ignore
+    const instanceStateNames = describeOutput.Reservations
+      ?.map((r) => r.Instances
+        ?.map((i) => i.State?.Name || '') || [])
+          .flat();
+
     if (instanceStateNames?.length === 0) {
       console.log('No instances found.');
       break;
     }
 
     const isRunningCount = instanceStateNames?.filter((s) => s !== 'terminated');
-    
+
     if (isRunningCount?.length === 0) {
       console.log('All instances are terminated.');
       break;
