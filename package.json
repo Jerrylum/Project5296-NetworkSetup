@@ -1,7 +1,7 @@
 {
-  "name": "project5296-client",
+  "name": "project5296-network-setup",
   "version": "0.0.1",
-  "description": "The client for project 5296",
+  "description": "The network setup tool for project 5296",
   "main": "dist/src/index.js",
   "author": "",
   "license": "MIT",
