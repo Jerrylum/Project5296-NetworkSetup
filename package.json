@@ -3,8 +3,6 @@
   "version": "0.0.1",
   "description": "The network setup tool for project 5296",
   "main": "dist/src/index.js",
-  "author": "",
-  "license": "MIT",
   "scripts": {
     "dev": "nodemon --watch src/**/*.ts --exec ts-node ./src/app.ts",
     "build": "tsc",
