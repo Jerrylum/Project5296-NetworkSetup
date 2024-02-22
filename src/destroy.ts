@@ -31,8 +31,10 @@ async function destroyInstances() {
 
   const instances =
     describeOutput.Reservations?.map((r) => r.Instances?.map((i) => i.InstanceId || '') || []).flat() || [];
-  await client.send(new TerminateInstancesCommand({ InstanceIds: instances }));
-  console.log(`Send termination request for instances: ${instances.join(', ')}`);
+  if (instances.length !== 0) {
+    await client.send(new TerminateInstancesCommand({ InstanceIds: instances }));
+    console.log(`Send termination request for instances: ${instances.join(', ')}`);
+  }
 }
 
 async function delay(ms: number) {
