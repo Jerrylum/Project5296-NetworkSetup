@@ -190,7 +190,8 @@ tinyproxy -c tinyproxy.conf`;
   const input: RunInstancesCommandInput = {
     MaxCount: count,
     MinCount: count,
-    ImageId: 'ami-0d96ec8a788679eb2', // Ubuntu Server 22.04 TLS (HVM), SSD Volume Type
+    // Use 0d96ec8a788679eb2 for ap-east-1
+    ImageId: 'ami-008fe2fc65df48dac', // Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
     InstanceType: instanceType,
     KeyName: keyName,
     UserData: userData,
