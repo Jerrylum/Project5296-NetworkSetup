@@ -195,7 +195,7 @@ tinyproxy -c tinyproxy.conf`;
     InstanceType: instanceType,
     KeyName: keyName,
     UserData: userData,
-    EbsOptimized: true,
+    EbsOptimized: !instanceType.includes('t2'),
     NetworkInterfaces: networkInterfaces,
     TagSpecifications: [
       {
