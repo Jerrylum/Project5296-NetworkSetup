@@ -2,6 +2,11 @@
 
 This project is a script to create and destroy a network setup used for project Project5296. The script creates a VPC with a public subnet, an internet gateway, and EC2 instances. For each EC2 instance, a public IP address is allocated and a security group is created to allow HTTP traffic from the public IP address. The script also installs and starts an HTTP proxy on each EC2 instance.
 
+# Pre-requisites
+
+- Node.js 18.16.0 or later
+- An AWS account (Using AWS Academic Learner Lab is not recommended as it has limitation on AWS IAM)
+
 # Setup AWS IAM
 
 1. Create a new user in the AWS IAM console.
