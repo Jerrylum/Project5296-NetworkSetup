@@ -1,6 +1,6 @@
 # Introduction
 
-This project is a script to create and destroy a network setup used for project Project5296. The script creates a VPC with a public subnet, an internet gateway, and EC2 instances.
+This project is a script to create and destroy a network setup used for project Project5296. The script creates a VPC with a public subnet, an internet gateway, and EC2 instances. For each EC2 instance, a public IP address is allocated and a security group is created to allow HTTP traffic from the public IP address. The script also installs and starts an HTTP proxy on each EC2 instance.
 
 # Setup AWS IAM
 
@@ -34,6 +34,11 @@ npm run create -- --instance-type t3.micro --ip-count 1
 ```
 
 Where `--instance-type` is the type of the EC2 instance and `--ip-count` is the number of instances to create. All created resources will be tagged with the `Project5296 (created by script)` tag.
+
+You should check if all HTTP proxy are running on the EC2 instances. If not, you can run the following command to start the HTTP proxy manually by SSH into the EC2 instances or connect to the EC2 instances using the AWS Console:
+```bash
+sudo killall tinyproxy; sleep 1; tinyproxy -c /tinyproxy.conf
+```
 
 # Destroy the Network Setup
 
