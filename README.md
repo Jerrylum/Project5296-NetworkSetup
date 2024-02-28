@@ -7,6 +7,20 @@ This project is a script to create and destroy a network setup used for project 
 - Node.js 18.16.0 or later
 - An AWS account (Using AWS Academic Learner Lab is not recommended as it has limitation on AWS IAM)
 
+If you are using Ubuntu, you can install node using the following commands:
+
+```bash
+sudo snap install node --classic
+```
+
+# Installation
+
+Run the following command to install the dependencies:
+
+```bash
+npm ci
+```
+
 # Setup AWS IAM
 
 1. Create a new user in the AWS IAM console.
