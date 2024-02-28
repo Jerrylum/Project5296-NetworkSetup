@@ -52,6 +52,15 @@ const instanceTypeToMaxNetworkInterfaces = {
   't3.large': 3,
 };
 
+// AMI ID mapping for Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+const regionTypeToAmiId = {
+  'us-east-1': 'ami-0c7217cdde317cfec',
+  'us-east-2': 'ami-05fb0b8c1424f266b',
+  'us-west-1': 'ami-0ce2cb35386fc22e9',
+  'us-west-2': 'ami-008fe2fc65df48dac',
+  'ap-east-1': 'ami-0d96ec8a788679eb2'
+};
+
 const PROXY_PORT = 3000;
 
 type SupportedInstanceType = keyof typeof instanceTypeToMaxNetworkInterfaces;
@@ -164,6 +173,7 @@ async function setupSecurityGroupIngress(groupId: string) {
 
 async function runInstances(
   operationId: string,
+  amiId: string,
   instanceType: SupportedInstanceType,
   keyName: string,
   networkInterfaceCount: number,
@@ -190,8 +200,7 @@ tinyproxy -c tinyproxy.conf`;
   const input: RunInstancesCommandInput = {
     MaxCount: count,
     MinCount: count,
-    // Use 0d96ec8a788679eb2 for ap-east-1
-    ImageId: 'ami-008fe2fc65df48dac', // Ubuntu Server 22.04 LTS (HVM), SSD Volume Type
+    ImageId: amiId,
     InstanceType: instanceType,
     KeyName: keyName,
     UserData: userData,
@@ -311,6 +320,7 @@ async function main() {
   const argv = require('minimist')(process.argv.slice(2));
   const instanceTypeRaw = argv['instance-type'];
   const ipCountRaw = argv['ip-count'];
+  const amiIdRaw = argv['ami-id'];
   const instanceKeyName = process.env.INSTANCE_KEY_NAME;
 
   if (!instanceKeyName) {
@@ -320,13 +330,14 @@ async function main() {
 
   if (!instanceTypeRaw || !ipCountRaw) {
     console.error('Please provide instance type and ip count');
-    console.error('Example: npm run create -- --instance-type t3.micro --ip-count 1');
+    console.error('Usage example: npm run create -- --instance-type t3.micro --ip-count 1');
     process.exit(1);
   }
 
   const knownInstanceTypes = Object.keys(instanceTypeToMaxNetworkInterfaces);
   if (!knownInstanceTypes.includes(instanceTypeRaw)) {
     console.error('Unknown instance type');
+    console.error('Usage example: npm run create -- --instance-type t3.micro --ip-count 1');
     process.exit(1);
   }
   const instanceType = instanceTypeRaw as keyof typeof instanceTypeToMaxNetworkInterfaces;
@@ -334,6 +345,14 @@ async function main() {
   const ipCount = parseInt(ipCountRaw);
   if (isNaN(ipCount) || ipCount < 1) {
     console.error('Invalid ip count');
+    console.error('Usage example: npm run create -- --instance-type t3.micro --ip-count 1');
+    process.exit(1);
+  }
+
+  const amiId = (amiIdRaw + "") || (regionTypeToAmiId as { [key: string]: string })[(process.env.AWS_REGION || "")];
+  if (!amiId) {
+    console.error('Unknown region, please also provide the AMI ID as an argument');
+    console.error('For example: npm run create -- --instance-type t3.micro --ip-count 1 --ami-id ami-0d96ec8a788679eb2');
     process.exit(1);
   }
 
@@ -392,6 +411,7 @@ async function main() {
 
   const instances = await runInstances(
     operationId,
+    amiId,
     instanceType,
     instanceKeyName,
     networkInterfaceCount,
